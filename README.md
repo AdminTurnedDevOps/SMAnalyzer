@@ -79,9 +79,7 @@ anomaly detection
 
 You'll see four use cases within the `smanalyzer` command:
 1. Scan
-2. Learn
-3. Monitor
-4. Status
+2. Status
 
 `cmd/scan.go`
 
@@ -90,6 +88,18 @@ You'll see four use cases within the `smanalyzer` command:
   - --duration - how long to monitor
   - --learn - learning mode vs detection mode
   - Basic scan workflow placeholder
+
+`cmd/status.go`
+
+This command provides system status overview:
+
+- status command: Quick health check and overview of the entire system
+- Cluster connection: Shows if connected to Kubernetes and basic cluster info
+- Service mesh status: Istio version, number of services with sidecars
+- AI model status: Whether baseline is trained, when last updated, training
+duration
+- Recent activity: Anomaly counts over different time periods
+- Configuration: Current detection thresholds and settings
 
 `pkg/k8s/client.go`
 
@@ -164,39 +174,6 @@ This enables the system to learn "normal" traffic patterns and identify when ser
   - Severity calculation: Quantifies how severe each anomaly is
   - Dynamic thresholds: Adapts sensitivity based on historical variance in the data
 
-`cmd/learn.go`
-
-  This command trains the baseline behavior model:
-
-  - learn command: Separate CLI command for establishing normal behavior patterns
-  - Duration flag: Specifies how much historical data to analyze for training
-  - Output flag: Option to save the learned model to disk for later use
-  - performLearning(): Placeholder for the actual learning process (connects to
-  cluster, discovers services, collects metrics, trains model)
-
-`cmd/monitor.go`
-
-  This command provides continuous monitoring:
-
-  - monitor command: Long-running process for real-time anomaly detection
-  - Interval flag: How often to check for anomalies (30s, 1m, etc.)
-  - Model flag: Load a previously learned baseline model
-  - Format flag: Choose output format for detected anomalies
-  - performMonitoring(): Continuous loop that checks for anomalies at regular
-  intervals and reports findings
-
-`cmd/status.go`
-
-  This command provides system status overview:
-
-  - status command: Quick health check and overview of the entire system
-  - Cluster connection: Shows if connected to Kubernetes and basic cluster info
-  - Service mesh status: Istio version, number of services with sidecars
-  - AI model status: Whether baseline is trained, when last updated, training
-  duration
-  - Recent activity: Anomaly counts over different time periods
-  - Configuration: Current detection thresholds and settings
-
 ### Build Binary
 
 ```
@@ -206,8 +183,6 @@ go build .
 ### Run Commands
 
 - smanalyzer scan - One-time anomaly scan
-- smanalyzer learn - Train baseline behavior model
-- smanalyzer monitor - Continuous real-time monitoring
 - smanalyzer status - System health and configuration overview
 
 
@@ -215,25 +190,30 @@ go build .
 
 ```
 ./smanalyzer scan
-
+                
 Starting Service Mesh scan...
 Scanning all namespaces
 Duration: 5m0s
 Learning mode: false
 Connecting to Kubernetes cluster...
 ✓ Connected to Kubernetes cluster
+Initializing Envoy metrics collection...
+✓ Ready to collect metrics from Envoy sidecars
 Discovering Services in Mesh...
-✓ Found 12 services with Istio sidecars
+Warning: Istio ingress gateway not found: deployments.apps "istio-ingressgateway" not found
+✓ Istio control plane healthy (Pilot: 1 replicas)
+Debug: DiscoverServices called with namespace=''
+Debug: Searching in namespace=''
+Debug: Found 39 total pods in namespace ''
+Debug: Found Istio service: emoji-svc.emojivoto
+Debug: Found Istio service: vote-bot.emojivoto
+Debug: Found Istio service: voting-svc.emojivoto
+Debug: Found Istio service: web-svc.emojivoto
+✓ Found 4 services with Istio sidecars
 Collecting service mesh metrics...
-
-Found 1 anomalies:
-
-1. High error rate: 104500.00% [CRITICAL]
-   Service: redis.
-   Type: error_rate_high
-   Time: 2025-08-17T10:47:25-04:00
-   Metrics:
-     error_rate: 1045.00
+Debug: Collecting metrics for service vote-bot in namespace emojivoto
+  Attempting to collect metrics from pod vote-bot-6fbc55bdb7-jlnhh
+    📊 Metrics collected: Requests=1371736, RPS=22862.3, Errors=7.89%, P99=0s
 ```
 
 ```

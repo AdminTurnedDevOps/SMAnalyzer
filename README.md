@@ -1,6 +1,6 @@
 # SMAnalyzer
 
-Scans your current cluster to check for anomolies within your L7 networking Kubernetes Services.
+Scans your current cluster to check for anomalies within your L7 networking Kubernetes Services.
 
 ![](images/showcase.gif)
 

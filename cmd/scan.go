@@ -86,7 +86,7 @@ func performScan(ctx context.Context) error {
 
 	clusteringEngine := ml.NewClusteringEngine(mlConfig)
 	detector := anomaly.NewDetector(detectionConfig, clusteringEngine)
-	formatter := output.NewFormatter(output.Format(config.Output.Format))
+	formatter := output.NewFormatter(config.Output.Format)
 
 	fmt.Println("Collecting service mesh metrics...")
 

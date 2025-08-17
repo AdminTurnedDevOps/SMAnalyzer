@@ -371,7 +371,7 @@ func (sd *ServiceDiscovery) parsePrometheusMetrics(prometheusText string, metric
 	metrics.Traces = []TraceSpan{}
 	metrics.AccessLogs = []AccessLogEntry{}
 
-	// Debug output showing real metrics collected
+	// Debug output showing metrics collected
 	fmt.Printf("    📊 Metrics collected: Requests=%d, RPS=%.1f, Errors=%.2f%%, P99=%v\n",
 		metrics.Traffic.TotalRequests,
 		metrics.Traffic.RequestsPerSecond,
@@ -568,7 +568,7 @@ func (sd *ServiceDiscovery) checkControlPlaneHealth(ctx context.Context) error {
 	return nil
 }
 
-// Real Envoy Admin API data collection functions
+// Envoy Admin API data collection functions
 func (sd *ServiceDiscovery) collectEnvoyStats(ctx context.Context, podName string, metrics *ServiceMeshMetrics) error {
 	// Use kubectl exec to access Envoy admin from within the pod
 	// This is the most reliable way since admin interface is localhost-only

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"smanalyzer/pkg/anomaly"
@@ -69,9 +70,14 @@ func performScan(ctx context.Context) error {
 	}
 
 	fmt.Println("✓ Connected to Kubernetes cluster")
+	fmt.Println("Initializing Envoy metrics collection...")
+
+	discovery := istio.NewServiceDiscovery(k8sClient.Clientset, k8sClient.RestConfig)
+	config := config.DefaultConfig()
+
+	fmt.Println("✓ Ready to collect metrics from Envoy sidecars")
 	fmt.Println("Discovering Services in Mesh...")
 
-	discovery := istio.NewServiceDiscovery(k8sClient.Clientset)
 	services, err := discovery.DiscoverServices(ctx, namespace)
 	if err != nil {
 		return fmt.Errorf("failed to discover services: %w", err)
@@ -80,7 +86,6 @@ func performScan(ctx context.Context) error {
 	fmt.Printf("✓ Found %d services with Istio sidecars\n", len(services))
 
 	storage := timeseries.NewStorage()
-	config := config.DefaultConfig()
 	mlConfig := config.ToMLConfig()
 	detectionConfig := config.ToAnomalyDetectionConfig()
 
@@ -92,16 +97,32 @@ func performScan(ctx context.Context) error {
 
 	var allAnomalies []anomaly.Anomaly
 
-	for _, serviceName := range services {
-		metrics, err := discovery.CollectMetrics(ctx, namespace, serviceName)
+	for _, serviceKey := range services {
+		// Parse service.namespace format
+		parts := strings.Split(serviceKey, ".")
+		if len(parts) != 2 {
+			fmt.Printf("Warning: invalid service key format: %s\n", serviceKey)
+			continue
+		}
+		serviceName := parts[0]
+		serviceNamespace := parts[1]
+		
+		fmt.Printf("Debug: Collecting metrics for service %s in namespace %s\n", serviceName, serviceNamespace)
+		metrics, err := discovery.CollectMetrics(ctx, serviceNamespace, serviceName)
 		if err != nil {
 			fmt.Printf("Warning: failed to collect metrics for %s: %v\n", serviceName, err)
 			continue
 		}
 
-		storage.Store(serviceName, "request_count", float64(metrics.RequestCount), metrics.Labels)
-		storage.Store(serviceName, "error_rate", metrics.ErrorRate, metrics.Labels)
-		storage.Store(serviceName, "response_time", float64(metrics.ResponseTime.Milliseconds()), metrics.Labels)
+		// Store Istio's Four Golden Signals
+		storage.Store(serviceName, "traffic_rps", metrics.Traffic.RequestsPerSecond, metrics.Labels)
+		storage.Store(serviceName, "latency_p99", float64(metrics.Latency.P99.Milliseconds()), metrics.Labels)
+		storage.Store(serviceName, "error_rate", metrics.Errors.ErrorRate, metrics.Labels)
+		storage.Store(serviceName, "saturation_cpu", metrics.Saturation.CPUUsage, metrics.Labels)
+		
+		// Legacy compatibility
+		storage.Store(serviceName, "request_count", float64(metrics.Traffic.TotalRequests), metrics.Labels)
+		storage.Store(serviceName, "response_time", float64(metrics.Latency.Mean.Milliseconds()), metrics.Labels)
 
 		recentPoints := storage.GetLatestN(serviceName, "request_count", 50)
 

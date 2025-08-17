@@ -130,12 +130,17 @@ func (f *Formatter) displayMetricsText(metrics []*istio.ServiceMeshMetrics) erro
 	
 	for _, m := range metrics {
 		fmt.Printf("Service: %s.%s\n", m.ServiceName, m.Namespace)
-		fmt.Printf("  Request Count: %d\n", m.RequestCount)
-		fmt.Printf("  Error Rate: %.2f%%\n", m.ErrorRate*100)
-		fmt.Printf("  Response Time: %v\n", m.ResponseTime)
-		fmt.Printf("  Circuit Breakers: %d\n", m.CircuitBreakers)
-		fmt.Printf("  Retry Count: %d\n", m.RetryCount)
-		fmt.Printf("  Timeout Count: %d\n", m.TimeoutCount)
+		fmt.Printf("  Traffic: %d requests (%5.1f RPS)\n", m.Traffic.TotalRequests, m.Traffic.RequestsPerSecond)
+		fmt.Printf("  Latency: P50=%v P99=%v\n", m.Latency.P50, m.Latency.P99)
+		fmt.Printf("  Errors: %.2f%% (%d/4xx, %d/5xx)\n", m.Errors.ErrorRate, m.Errors.Errors4xx, m.Errors.Errors5xx)
+		fmt.Printf("  Saturation: CPU=%.1f%% Memory=%.1f%% Connections=%d\n", m.Saturation.CPUUsage, m.Saturation.MemoryUsage, m.Saturation.Connections)
+		fmt.Printf("  Circuit Breakers: %d, Retries: %d, Timeouts: %d\n", m.CircuitBreakers, m.RetryCount, m.TimeoutCount)
+		if len(m.Traces) > 0 {
+			fmt.Printf("  Traces: %d spans collected\n", len(m.Traces))
+		}
+		if len(m.AccessLogs) > 0 {
+			fmt.Printf("  Access Logs: %d entries\n", len(m.AccessLogs))
+		}
 		fmt.Println()
 	}
 	
@@ -149,18 +154,18 @@ func (f *Formatter) displayMetricsTable(metrics []*istio.ServiceMeshMetrics) err
 	}
 
 	fmt.Printf("[%s] Service Mesh Metrics:\n\n", time.Now().Format("15:04:05"))
-	fmt.Printf("%-20s %-10s %-12s %-8s %-12s %-8s %-8s %-8s\n", 
-		"SERVICE", "NAMESPACE", "REQ_COUNT", "ERR_RATE", "RESP_TIME", "CIRCUIT", "RETRIES", "TIMEOUTS")
-	fmt.Printf("%-20s %-10s %-12s %-8s %-12s %-8s %-8s %-8s\n", 
-		"-------", "---------", "---------", "--------", "---------", "-------", "-------", "--------")
+	fmt.Printf("%-20s %-10s %-8s %-8s %-10s %-8s %-8s %-8s\n", 
+		"SERVICE", "NAMESPACE", "RPS", "ERR%", "P99_LAT", "CIRCUIT", "RETRIES", "TIMEOUTS")
+	fmt.Printf("%-20s %-10s %-8s %-8s %-10s %-8s %-8s %-8s\n", 
+		"-------", "---------", "----", "----", "-------", "-------", "-------", "--------")
 	
 	for _, m := range metrics {
 		service := f.truncate(m.ServiceName, 19)
 		namespace := f.truncate(m.Namespace, 9)
 		
-		fmt.Printf("%-20s %-10s %-12d %-8.2f %-12v %-8d %-8d %-8d\n",
-			service, namespace, m.RequestCount, m.ErrorRate*100, 
-			m.ResponseTime, m.CircuitBreakers, m.RetryCount, m.TimeoutCount)
+		fmt.Printf("%-20s %-10s %-8.1f %-8.2f %-10v %-8d %-8d %-8d\n",
+			service, namespace, m.Traffic.RequestsPerSecond, m.Errors.ErrorRate, 
+			m.Latency.P99, m.CircuitBreakers, m.RetryCount, m.TimeoutCount)
 	}
 	fmt.Println()
 	

@@ -1,3 +1,5 @@
+Please Note: This is still a work in progress. The project is only a few days old.
+
 # SMAnalyzer
 
 Scans your current cluster to check for anomalies within your L7 networking Kubernetes Services.
@@ -190,7 +192,7 @@ go build .
 
 ```
 ./smanalyzer scan
-                
+
 Starting Service Mesh scan...
 Scanning all namespaces
 Duration: 5m0s

@@ -188,22 +188,40 @@ func (sd *ServiceDiscovery) CollectMetrics(ctx context.Context, namespace, servi
 }
 
 func (sd *ServiceDiscovery) getServicePods(ctx context.Context, namespace, serviceName string) ([]string, error) {
+	// Try legacy 'app' label first
 	listOptions := metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("app=%s", serviceName),
 	}
-
+	
 	pods, err := sd.clientset.CoreV1().Pods(namespace).List(ctx, listOptions)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list pods: %w", err)
-	}
-
-	var podNames []string
-	for _, pod := range pods.Items {
-		if hasIstioSidecar(pod.Labels, pod.Annotations) && pod.Status.Phase == "Running" {
-			podNames = append(podNames, pod.Name)
+	if err == nil && len(pods.Items) > 0 {
+		var podNames []string
+		for _, pod := range pods.Items {
+			if hasIstioSidecar(pod.Labels, pod.Annotations) && pod.Status.Phase == "Running" {
+				podNames = append(podNames, pod.Name)
+			}
+		}
+		if len(podNames) > 0 {
+			return podNames, nil
 		}
 	}
-	return podNames, nil
+	
+	// Fallback to modern 'app.kubernetes.io/name' label
+	listOptions.LabelSelector = fmt.Sprintf("app.kubernetes.io/name=%s", serviceName)
+	pods, err = sd.clientset.CoreV1().Pods(namespace).List(ctx, listOptions)
+	if err == nil && len(pods.Items) > 0 {
+		var podNames []string
+		for _, pod := range pods.Items {
+			if hasIstioSidecar(pod.Labels, pod.Annotations) && pod.Status.Phase == "Running" {
+				podNames = append(podNames, pod.Name)
+			}
+		}
+		if len(podNames) > 0 {
+			return podNames, nil
+		}
+	}
+	
+	return nil, fmt.Errorf("no running pods with Istio sidecars found for service %s in namespace %s", serviceName, namespace)
 }
 
 func (sd *ServiceDiscovery) collectEnvoyMetrics(ctx context.Context, podName string, metrics *ServiceMeshMetrics) error {

@@ -61,7 +61,7 @@ func performMonitoring(ctx context.Context) error {
 	}
 
 	// Initialize service discovery
-	serviceDiscovery := istio.NewServiceDiscovery(k8sClient.Clientset)
+	serviceDiscovery := istio.NewServiceDiscovery(k8sClient.Clientset, k8sClient.RestConfig)
 
 	// Initialize output formatter
 	formatter := output.NewFormatter(outputFormat)

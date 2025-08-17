@@ -5,11 +5,13 @@ import (
 	"fmt"
 
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
 type Client struct {
-	Clientset *kubernetes.Clientset
+	Clientset  *kubernetes.Clientset
+	RestConfig *rest.Config
 }
 
 func NewClient() (*Client, error) {
@@ -26,7 +28,10 @@ func NewClient() (*Client, error) {
 		return nil, fmt.Errorf("failed to create kubernetes client: %w", err)
 	}
 
-	return &Client{Clientset: clientset}, nil
+	return &Client{
+		Clientset:  clientset,
+		RestConfig: config,
+	}, nil
 }
 
 func (c *Client) CheckConnection(ctx context.Context) error {

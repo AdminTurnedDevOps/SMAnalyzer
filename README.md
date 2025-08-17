@@ -15,6 +15,8 @@ Although numbers 1 and 2 are drastically important, number 3 is the make or brea
 
 All applications should perform as expected, and typically, bad performance stems from an networking issue (unless it's a specific app/code issue)
 
+**PLEASE NOTE**: This is for scanning real-time/current usage, not a forecasting tool that learns over time.
+
 ## How Does The ML Piece Work?
 
 SMAnalyzer uses a K-means clustering algorithm, which automatically sorts things into groups based on how similar they are to each other.

@@ -15,10 +15,10 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "smanalyzer",
-	Short: "Service Mesh AI Anomaly Detection System",
-	Long: `SMAnalyzer is an ML-powered system that learns normal behavior patterns 
-in your Kubernetes Service Mesh and tells you the anomalies in network traffic, 
-circuit breaking, retries, and timeouts using time series analysis and clustering algorithms.`,
+	Short: "Service Mesh Monitoring and Analysis System",
+	Long: `SMAnalyzer monitors your Kubernetes Service Mesh in real-time, displaying 
+metrics for network traffic, circuit breaking, retries, and timeouts. It can also 
+scan for anomalies using ML-powered clustering algorithms.`,
 }
 
 func Execute() error {

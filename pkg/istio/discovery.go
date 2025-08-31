@@ -187,6 +187,27 @@ func (sd *ServiceDiscovery) CollectMetrics(ctx context.Context, namespace, servi
 	return nil, fmt.Errorf("failed to collect metrics from any pod for service %s", serviceName)
 }
 
+func hasIstioSidecar(labels, annotations map[string]string) bool {
+	// Check pod annotations for sidecar injection
+	if annotations != nil {
+		if val, exists := annotations["sidecar.istio.io/status"]; exists && val != "" {
+			return true
+		}
+	}
+
+	// Check labels for injection enabled
+	if labels != nil {
+		if val, exists := labels["istio-injection"]; exists && val == "enabled" {
+			return true
+		}
+		if val, exists := labels["sidecar.istio.io/inject"]; exists && val == "true" {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (sd *ServiceDiscovery) getServicePods(ctx context.Context, namespace, serviceName string) ([]string, error) {
 	listOptions := metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("app=%s", serviceName),
@@ -381,145 +402,6 @@ func (sd *ServiceDiscovery) parsePrometheusMetrics(prometheusText string, metric
 	return nil
 }
 
-func (sd *ServiceDiscovery) parseEnvoyStatsText(statsText string, metrics *ServiceMeshMetrics) error {
-	lines := strings.Split(statsText, "\n")
-
-	var totalRequests, errors4xx, errors5xx float64
-	var p50, p90, p95, p99, mean float64
-	var inboundBytes, outboundBytes float64
-	var connections, pendingReqs float64
-
-	for _, line := range lines {
-		parts := strings.Fields(line)
-		if len(parts) != 2 {
-			continue
-		}
-
-		statName := parts[0]
-		value, err := strconv.ParseFloat(parts[1], 64)
-		if err != nil {
-			continue
-		}
-
-		// Traffic metrics
-		if strings.Contains(statName, "http.inbound.rq_completed") {
-			totalRequests = value
-		}
-		if strings.Contains(statName, "http.inbound.downstream_rq_total") {
-			inboundBytes = value
-		}
-		if strings.Contains(statName, "http.outbound.upstream_rq_total") {
-			outboundBytes = value
-		}
-
-		// Error metrics
-		if strings.Contains(statName, "http.inbound.rq_4xx") {
-			errors4xx += value
-		}
-		if strings.Contains(statName, "http.inbound.rq_5xx") {
-			errors5xx += value
-		}
-
-		// Latency metrics (histogram percentiles)
-		if strings.Contains(statName, "http.inbound.downstream_rq_time") {
-			if strings.Contains(statName, "P50") {
-				p50 = value
-			} else if strings.Contains(statName, "P90") {
-				p90 = value
-			} else if strings.Contains(statName, "P95") {
-				p95 = value
-			} else if strings.Contains(statName, "P99") {
-				p99 = value
-			} else if strings.Contains(statName, "mean") {
-				mean = value
-			}
-		}
-
-		// Saturation metrics
-		if strings.Contains(statName, "server.live") {
-			connections = value
-		}
-		if strings.Contains(statName, "http.inbound.downstream_rq_pending_total") {
-			pendingReqs = value
-		}
-
-		// Service mesh specific
-		if strings.Contains(statName, "upstream_rq_timeout") {
-			metrics.TimeoutCount = int64(value)
-		}
-		if strings.Contains(statName, "upstream_rq_retry") {
-			metrics.RetryCount = int64(value)
-		}
-		if strings.Contains(statName, "circuit_breakers") && strings.Contains(statName, "open") {
-			metrics.CircuitBreakers = int(value)
-		}
-	}
-
-	// Populate structured metrics
-	metrics.Traffic = TrafficMetrics{
-		TotalRequests:     int64(totalRequests),
-		RequestsPerSecond: totalRequests / 60, // Approximate RPS
-		InboundBytes:      int64(inboundBytes),
-		OutboundBytes:     int64(outboundBytes),
-	}
-
-	metrics.Latency = LatencyMetrics{
-		P50:  time.Duration(p50) * time.Millisecond,
-		P90:  time.Duration(p90) * time.Millisecond,
-		P95:  time.Duration(p95) * time.Millisecond,
-		P99:  time.Duration(p99) * time.Millisecond,
-		Mean: time.Duration(mean) * time.Millisecond,
-	}
-
-	errorRate := float64(0)
-	if totalRequests > 0 {
-		errorRate = ((errors4xx + errors5xx) / totalRequests) * 100
-	}
-
-	metrics.Errors = ErrorMetrics{
-		ErrorRate: errorRate,
-		Errors4xx: int64(errors4xx),
-		Errors5xx: int64(errors5xx),
-	}
-
-	metrics.Saturation = SaturationMetrics{
-		Connections: int64(connections),
-		PendingReqs: int64(pendingReqs),
-		// CPU/Memory would need additional pod metrics
-		CPUUsage:    0,
-		MemoryUsage: 0,
-	}
-
-	return nil
-}
-
-func (sd *ServiceDiscovery) parseEnvoyStatsJSON(stats map[string]interface{}, metrics *ServiceMeshMetrics) error {
-	// Parse JSON format stats (implementation depends on Envoy version)
-	// For now, use text parsing fallback
-	return fmt.Errorf("JSON stats parsing not implemented, use text format")
-}
-
-func hasIstioSidecar(labels, annotations map[string]string) bool {
-	// Check pod annotations for sidecar injection
-	if annotations != nil {
-		if val, exists := annotations["sidecar.istio.io/status"]; exists && val != "" {
-			return true
-		}
-	}
-
-	// Check labels for injection enabled
-	if labels != nil {
-		if val, exists := labels["istio-injection"]; exists && val == "enabled" {
-			return true
-		}
-		if val, exists := labels["sidecar.istio.io/inject"]; exists && val == "true" {
-			return true
-		}
-	}
-
-	return false
-}
-
 func getServiceName(labels map[string]string) string {
 	if labels == nil {
 		return ""
@@ -568,96 +450,214 @@ func (sd *ServiceDiscovery) checkControlPlaneHealth(ctx context.Context) error {
 	return nil
 }
 
+// func (sd *ServiceDiscovery) parseEnvoyStatsText(statsText string, metrics *ServiceMeshMetrics) error {
+// 	lines := strings.Split(statsText, "\n")
+
+// 	var totalRequests, errors4xx, errors5xx float64
+// 	var p50, p90, p95, p99, mean float64
+// 	var inboundBytes, outboundBytes float64
+// 	var connections, pendingReqs float64
+
+// 	for _, line := range lines {
+// 		parts := strings.Fields(line)
+// 		if len(parts) != 2 {
+// 			continue
+// 		}
+
+// 		statName := parts[0]
+// 		value, err := strconv.ParseFloat(parts[1], 64)
+// 		if err != nil {
+// 			continue
+// 		}
+
+// 		// Traffic metrics
+// 		if strings.Contains(statName, "http.inbound.rq_completed") {
+// 			totalRequests = value
+// 		}
+// 		if strings.Contains(statName, "http.inbound.downstream_rq_total") {
+// 			inboundBytes = value
+// 		}
+// 		if strings.Contains(statName, "http.outbound.upstream_rq_total") {
+// 			outboundBytes = value
+// 		}
+
+// 		// Error metrics
+// 		if strings.Contains(statName, "http.inbound.rq_4xx") {
+// 			errors4xx += value
+// 		}
+// 		if strings.Contains(statName, "http.inbound.rq_5xx") {
+// 			errors5xx += value
+// 		}
+
+// 		// Latency metrics (histogram percentiles)
+// 		if strings.Contains(statName, "http.inbound.downstream_rq_time") {
+// 			if strings.Contains(statName, "P50") {
+// 				p50 = value
+// 			} else if strings.Contains(statName, "P90") {
+// 				p90 = value
+// 			} else if strings.Contains(statName, "P95") {
+// 				p95 = value
+// 			} else if strings.Contains(statName, "P99") {
+// 				p99 = value
+// 			} else if strings.Contains(statName, "mean") {
+// 				mean = value
+// 			}
+// 		}
+
+// 		// Saturation metrics
+// 		if strings.Contains(statName, "server.live") {
+// 			connections = value
+// 		}
+// 		if strings.Contains(statName, "http.inbound.downstream_rq_pending_total") {
+// 			pendingReqs = value
+// 		}
+
+// 		// Service mesh specific
+// 		if strings.Contains(statName, "upstream_rq_timeout") {
+// 			metrics.TimeoutCount = int64(value)
+// 		}
+// 		if strings.Contains(statName, "upstream_rq_retry") {
+// 			metrics.RetryCount = int64(value)
+// 		}
+// 		if strings.Contains(statName, "circuit_breakers") && strings.Contains(statName, "open") {
+// 			metrics.CircuitBreakers = int(value)
+// 		}
+// 	}
+
+// 	// Populate structured metrics
+// 	metrics.Traffic = TrafficMetrics{
+// 		TotalRequests:     int64(totalRequests),
+// 		RequestsPerSecond: totalRequests / 60, // Approximate RPS
+// 		InboundBytes:      int64(inboundBytes),
+// 		OutboundBytes:     int64(outboundBytes),
+// 	}
+
+// 	metrics.Latency = LatencyMetrics{
+// 		P50:  time.Duration(p50) * time.Millisecond,
+// 		P90:  time.Duration(p90) * time.Millisecond,
+// 		P95:  time.Duration(p95) * time.Millisecond,
+// 		P99:  time.Duration(p99) * time.Millisecond,
+// 		Mean: time.Duration(mean) * time.Millisecond,
+// 	}
+
+// 	errorRate := float64(0)
+// 	if totalRequests > 0 {
+// 		errorRate = ((errors4xx + errors5xx) / totalRequests) * 100
+// 	}
+
+// 	metrics.Errors = ErrorMetrics{
+// 		ErrorRate: errorRate,
+// 		Errors4xx: int64(errors4xx),
+// 		Errors5xx: int64(errors5xx),
+// 	}
+
+// 	metrics.Saturation = SaturationMetrics{
+// 		Connections: int64(connections),
+// 		PendingReqs: int64(pendingReqs),
+// 		// CPU/Memory would need additional pod metrics
+// 		CPUUsage:    0,
+// 		MemoryUsage: 0,
+// 	}
+
+// 	return nil
+// }
+
+// func (sd *ServiceDiscovery) parseEnvoyStatsJSON(stats map[string]interface{}, metrics *ServiceMeshMetrics) error {
+// 	// Parse JSON format stats (implementation depends on Envoy version)
+// 	// For now, use text parsing fallback
+// 	return fmt.Errorf("JSON stats parsing not implemented, use text format")
+// }
+
 // Envoy Admin API data collection functions
-func (sd *ServiceDiscovery) collectEnvoyStats(ctx context.Context, podName string, metrics *ServiceMeshMetrics) error {
-	// Use kubectl exec to access Envoy admin from within the pod
-	// This is the most reliable way since admin interface is localhost-only
+// func (sd *ServiceDiscovery) collectEnvoyStats(ctx context.Context, podName string, metrics *ServiceMeshMetrics) error {
+// 	// Use kubectl exec to access Envoy admin from within the pod
+// 	// This is the most reliable way since admin interface is localhost-only
 
-	fmt.Printf("    Executing curl inside pod %s\n", podName)
+// 	fmt.Printf("    Executing curl inside pod %s\n", podName)
 
-	// Execute curl command inside the istio-proxy container
-	cmd := []string{"curl", "-s", "http://localhost:15000/stats"}
+// 	// Execute curl command inside the istio-proxy container
+// 	cmd := []string{"curl", "-s", "http://localhost:15000/stats"}
 
-	req := sd.clientset.CoreV1().RESTClient().Post().
-		Resource("pods").
-		Name(podName).
-		Namespace(metrics.Namespace).
-		SubResource("exec")
+// 	req := sd.clientset.CoreV1().RESTClient().Post().
+// 		Resource("pods").
+// 		Name(podName).
+// 		Namespace(metrics.Namespace).
+// 		SubResource("exec")
 
-	req.VersionedParams(&corev1.PodExecOptions{
-		Container: "istio-proxy", // Execute in the Envoy sidecar container
-		Command:   cmd,
-		Stdout:    true,
-		Stderr:    true,
-	}, scheme.ParameterCodec)
+// 	req.VersionedParams(&corev1.PodExecOptions{
+// 		Container: "istio-proxy", // Execute in the Envoy sidecar container
+// 		Command:   cmd,
+// 		Stdout:    true,
+// 		Stderr:    true,
+// 	}, scheme.ParameterCodec)
 
-	exec, err := remotecommand.NewSPDYExecutor(sd.restConfig, "POST", req.URL())
-	if err != nil {
-		return fmt.Errorf("failed to create executor: %w", err)
-	}
+// 	exec, err := remotecommand.NewSPDYExecutor(sd.restConfig, "POST", req.URL())
+// 	if err != nil {
+// 		return fmt.Errorf("failed to create executor: %w", err)
+// 	}
 
-	var stdout, stderr bytes.Buffer
-	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
-		Stdout: &stdout,
-		Stderr: &stderr,
-	})
+// 	var stdout, stderr bytes.Buffer
+// 	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+// 		Stdout: &stdout,
+// 		Stderr: &stderr,
+// 	})
 
-	if err != nil {
-		return fmt.Errorf("failed to execute command: %w (stderr: %s)", err, stderr.String())
-	}
+// 	if err != nil {
+// 		return fmt.Errorf("failed to execute command: %w (stderr: %s)", err, stderr.String())
+// 	}
 
-	if stderr.Len() > 0 {
-		fmt.Printf("    Warning: %s\n", stderr.String())
-	}
+// 	if stderr.Len() > 0 {
+// 		fmt.Printf("    Warning: %s\n", stderr.String())
+// 	}
 
-	statsOutput := stdout.String()
-	if len(statsOutput) == 0 {
-		return fmt.Errorf("no stats output received from pod %s", podName)
-	}
+// 	statsOutput := stdout.String()
+// 	if len(statsOutput) == 0 {
+// 		return fmt.Errorf("no stats output received from pod %s", podName)
+// 	}
 
-	fmt.Printf("    ✓ Retrieved %d bytes of Envoy stats\n", len(statsOutput))
+// 	fmt.Printf("    ✓ Retrieved %d bytes of Envoy stats\n", len(statsOutput))
 
-	return sd.parseEnvoyStatsText(statsOutput, metrics)
-}
+// 	return sd.parseEnvoyStatsText(statsOutput, metrics)
+// }
 
-func (sd *ServiceDiscovery) collectEnvoyAccessLogs(ctx context.Context, envoyAdminURL string, metrics *ServiceMeshMetrics) error {
-	// Envoy access logs are typically written to files or stdout, not exposed via admin API
-	// In a real implementation, you would:
-	// 1. Read from pod's log stream
-	// 2. Parse JSON access log format
-	// 3. Extract request details
+// func (sd *ServiceDiscovery) collectEnvoyAccessLogs(ctx context.Context, envoyAdminURL string, metrics *ServiceMeshMetrics) error {
+// 	// Envoy access logs are typically written to files or stdout, not exposed via admin API
+// 	// In a real implementation, you would:
+// 	// 1. Read from pod's log stream
+// 	// 2. Parse JSON access log format
+// 	// 3. Extract request details
 
-	logsURL := envoyAdminURL + "/logging"
-	resp, err := sd.httpClient.Get(logsURL)
-	if err != nil {
-		// Access logs might not be available via admin API
-		return nil
-	}
-	defer resp.Body.Close()
+// 	logsURL := envoyAdminURL + "/logging"
+// 	resp, err := sd.httpClient.Get(logsURL)
+// 	if err != nil {
+// 		// Access logs might not be available via admin API
+// 		return nil
+// 	}
+// 	defer resp.Body.Close()
 
-	// Parse any available log data
-	// For now, initialize empty logs array
-	metrics.AccessLogs = []AccessLogEntry{}
-	return nil
-}
+// 	// Parse any available log data
+// 	// For now, initialize empty logs array
+// 	metrics.AccessLogs = []AccessLogEntry{}
+// 	return nil
+// }
 
-func (sd *ServiceDiscovery) collectEnvoyTraces(ctx context.Context, envoyAdminURL string, metrics *ServiceMeshMetrics) error {
-	// Distributed traces are typically sent to external systems (Jaeger, Zipkin)
-	// Envoy admin API might expose some trace configuration but not the spans themselves
-	// In a real implementation, you would:
-	// 1. Connect to Jaeger/Zipkin API
-	// 2. Query for traces related to this service
-	// 3. Parse trace spans
+// func (sd *ServiceDiscovery) collectEnvoyTraces(ctx context.Context, envoyAdminURL string, metrics *ServiceMeshMetrics) error {
+// 	// Distributed traces are typically sent to external systems (Jaeger, Zipkin)
+// 	// Envoy admin API might expose some trace configuration but not the spans themselves
+// 	// In a real implementation, you would:
+// 	// 1. Connect to Jaeger/Zipkin API
+// 	// 2. Query for traces related to this service
+// 	// 3. Parse trace spans
 
-	tracingURL := envoyAdminURL + "/config_dump?resource=dynamic_active_clusters"
-	resp, err := sd.httpClient.Get(tracingURL)
-	if err != nil {
-		// Tracing config might not be available
-		return nil
-	}
-	defer resp.Body.Close()
+// 	tracingURL := envoyAdminURL + "/config_dump?resource=dynamic_active_clusters"
+// 	resp, err := sd.httpClient.Get(tracingURL)
+// 	if err != nil {
+// 		// Tracing config might not be available
+// 		return nil
+// 	}
+// 	defer resp.Body.Close()
 
-	// For now, initialize empty traces array
-	metrics.Traces = []TraceSpan{}
-	return nil
-}
+// 	// For now, initialize empty traces array
+// 	metrics.Traces = []TraceSpan{}
+// 	return nil
+// }

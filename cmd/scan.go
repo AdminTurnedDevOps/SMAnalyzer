@@ -57,30 +57,40 @@ func runScan(cmd *cobra.Command, args []string) {
 	}
 }
 
-func performScan(ctx context.Context) error {
-	fmt.Println("Connecting to Kubernetes cluster...")
-
+func connectk8s(ctx context.Context) *k8s.Client {
 	k8sClient, err := k8s.NewClient()
 	if err != nil {
-		return fmt.Errorf("failed to create kubernetes client: %w", err)
+		fmt.Println(err)
 	}
 
 	if err := k8sClient.CheckConnection(ctx); err != nil {
-		return fmt.Errorf("failed to connect to cluster: %w", err)
+		fmt.Println(err)
 	}
 
-	fmt.Println("✓ Connected to Kubernetes cluster")
+	return k8sClient
+}
+
+func istioConfig(ctx context.Context) (*config.Config, *istio.ServiceDiscovery) {
 	fmt.Println("Initializing Envoy metrics collection...")
 
-	discovery := istio.NewServiceDiscovery(k8sClient.Clientset, k8sClient.RestConfig)
+	discovery := istio.NewServiceDiscovery(connectk8s(ctx).Clientset, connectk8s(ctx).RestConfig)
 	config := config.DefaultConfig()
 
 	fmt.Println("✓ Ready to collect metrics from Envoy sidecars")
 	fmt.Println("Discovering Services in Mesh...")
 
+	return config, discovery
+}
+
+func performScan(ctx context.Context) error {
+	if connectk8s(ctx) != nil {
+		fmt.Println("Connecting to Kubernetes cluster...")
+	}
+
+	config, discovery := istioConfig(ctx)
 	services, err := discovery.DiscoverServices(ctx, namespace)
 	if err != nil {
-		return fmt.Errorf("failed to discover services: %w", err)
+		fmt.Println("failed to discover services: %w", err)
 	}
 
 	fmt.Printf("✓ Found %d services with Istio sidecars\n", len(services))
@@ -106,7 +116,7 @@ func performScan(ctx context.Context) error {
 		}
 		serviceName := parts[0]
 		serviceNamespace := parts[1]
-		
+
 		fmt.Printf("Debug: Collecting metrics for service %s in namespace %s\n", serviceName, serviceNamespace)
 		metrics, err := discovery.CollectMetrics(ctx, serviceNamespace, serviceName)
 		if err != nil {
@@ -119,7 +129,7 @@ func performScan(ctx context.Context) error {
 		storage.Store(serviceName, "latency_p99", float64(metrics.Latency.P99.Milliseconds()), metrics.Labels)
 		storage.Store(serviceName, "error_rate", metrics.Errors.ErrorRate, metrics.Labels)
 		storage.Store(serviceName, "saturation_cpu", metrics.Saturation.CPUUsage, metrics.Labels)
-		
+
 		// Legacy compatibility
 		storage.Store(serviceName, "request_count", float64(metrics.Traffic.TotalRequests), metrics.Labels)
 		storage.Store(serviceName, "response_time", float64(metrics.Latency.Mean.Milliseconds()), metrics.Labels)

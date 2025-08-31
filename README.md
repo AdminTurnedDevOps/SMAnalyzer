@@ -2,7 +2,7 @@ Please Note: This is still a work in progress. The project is only a few days ol
 
 # SMAnalyzer
 
-Scans your current cluster to check for anomalies within your L7 networking Kubernetes Services.
+Scans your current cluster to check for anomalies within your L3/L4 and L7 networking Kubernetes Services.
 
 ![](images/showcase.gif)
 
@@ -204,4 +204,35 @@ Collecting service mesh metrics...
 Debug: Collecting metrics for service vote-bot in namespace emojivoto
   Attempting to collect metrics from pod vote-bot-6fbc55bdb7-jlnhh
     📊 Metrics collected: Requests=1371736, RPS=22862.3, Errors=7.89%, P99=0s
+```
+
+```
+./smanalyzer status
+Service Mesh Analyzer Status
+============================
+
+🔍 Cluster Connection:
+  Status: Connected
+  Cluster: kind-kind
+  Namespaces: 12
+
+🕸️  Service Mesh:
+  Istio Version: 1.20.0
+  Services with sidecars: 15
+  Gateway services: 2
+
+🤖 AI Model:
+  Baseline Status: Trained
+  Last Updated: 2024-01-15 14:30:00
+  Training Data: 24h
+
+📊 Recent Activity:
+  Anomalies (last 1h): 2
+  Anomalies (last 24h): 12
+  Services monitored: 15
+
+⚙️  Configuration:
+  Error rate threshold: 5%
+  Traffic spike threshold: 2x
+  Sensitivity level: 2.0
 ```
